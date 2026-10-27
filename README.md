@@ -5,8 +5,9 @@
 ## 快速开始
 
 ```bash
-# 1. 环境初始化（WSL Ubuntu）
+# 1. 环境初始化（WSL Ubuntu）+ 配置环境变量
 bash 00_setup/wsl_setup.sh
+cp 00_setup/.env.example .env    # 按需修改
 
 # 2. 将书籍PDF放入 data/raw/，然后运行数据管线
 bash 01_data_pipeline/run_pipeline.sh
@@ -30,6 +31,7 @@ train-ming-military/
 ├── 00_setup/
 │   ├── wsl_setup.sh              ← WSL环境一键初始化
 │   ├── requirements.txt          ← Python依赖
+│   ├── .env.example              ← 环境变量模板（复制为项目根目录 .env）
 │   └── docker-compose.yml        ← ChromaDB + Open-WebUI
 ├── 01_data_pipeline/
 │   ├── 01_extract_pdf.py         ← PDF文字提取
