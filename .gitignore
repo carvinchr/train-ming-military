@@ -1,3 +1,20 @@
 __pycache__/
 *.pyc
 .venv/
+
+# generated data / outputs
+data/
+outputs/
+results/
+benchmark/
+
+# model artifacts
+*.safetensors
+*.gguf
+*.bin
+
+# rag index
+chroma_db/
+
+# local env
+.env

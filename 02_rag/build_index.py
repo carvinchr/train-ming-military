@@ -1,6 +1,8 @@
 """
 RAG Step 1: 构建ChromaDB向量索引
 使用 BAAI/bge-m3 多语言嵌入模型（中文效果最佳）
+策略：先写入临时集合，全部成功后原子切换（删除旧集合→重命名），
+避免构建中断导致索引损坏。
 用法：python 02_rag/build_index.py --chunks data/chunks --db-path data/chroma_db
 """
 import argparse
@@ -13,9 +15,8 @@ import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
+from config import settings
 
-COLLECTION_NAME = "ming_military"
-EMBED_MODEL = "BAAI/bge-m3"
 BATCH_SIZE = 64
 
 
@@ -34,7 +35,10 @@ def load_chunks(chunks_dir: Path) -> list:
     return all_chunks
 
 
-def build_index(chunks_dir: Path, db_path: Path, embed_model_name: str = EMBED_MODEL):
+def build_index(chunks_dir: Path, db_path: Path, embed_model_name: str | None = None):
+    embed_model_name = embed_model_name or settings.embed_model
+    collection_name = settings.collection_name
+
     logger.info(f"加载嵌入模型: {embed_model_name}")
     model = SentenceTransformer(embed_model_name, trust_remote_code=True)
 
@@ -45,15 +49,14 @@ def build_index(chunks_dir: Path, db_path: Path, embed_model_name: str = EMBED_M
         settings=Settings(anonymized_telemetry=False),
     )
 
-    # 如果已存在则删除重建
+    # 原子切换：先写临时集合，成功后删除旧集合并重命名
+    temp_name = f"{collection_name}_new"
     try:
-        client.delete_collection(COLLECTION_NAME)
-        logger.info(f"已删除旧集合 {COLLECTION_NAME}")
+        client.delete_collection(temp_name)
     except Exception:
         pass
-
     collection = client.create_collection(
-        name=COLLECTION_NAME,
+        name=temp_name,
         metadata={"hnsw:space": "cosine"},
     )
 
@@ -68,13 +71,14 @@ def build_index(chunks_dir: Path, db_path: Path, embed_model_name: str = EMBED_M
         metadatas = [
             {
                 "source": c.get("source", ""),
+                "chapter": c.get("chapter", ""),
                 "chunk_index": c.get("chunk_index", 0),
+                "token_count": c.get("token_count", 0),
                 "char_count": c.get("char_count", len(c["text"])),
             }
             for c in batch
         ]
 
-        # bge-m3 推荐的查询前缀
         embeddings = model.encode(
             texts,
             batch_size=32,
@@ -90,15 +94,23 @@ def build_index(chunks_dir: Path, db_path: Path, embed_model_name: str = EMBED_M
         )
 
     count = collection.count()
-    logger.info(f"✅ 索引构建完成，共 {count} 条记录 → {db_path}")
+    if count == 0:
+        raise RuntimeError("索引为空，保留旧集合，不执行切换")
+
+    try:
+        client.delete_collection(collection_name)
+    except Exception:
+        pass
+    client.modify_collection(temp_name, new_name=collection_name)
+    logger.info(f"✅ 索引构建完成，共 {count} 条记录 → {db_path}（原子切换）")
     return count
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--chunks", default="data/chunks")
-    parser.add_argument("--db-path", default="data/chroma_db")
-    parser.add_argument("--embedding-model", default=EMBED_MODEL)
+    parser.add_argument("--chunks", default=str(settings.chunks_dir))
+    parser.add_argument("--db-path", default=str(settings.chroma_db_path))
+    parser.add_argument("--embedding-model", default=settings.embed_model)
     args = parser.parse_args()
 
     build_index(

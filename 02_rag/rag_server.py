@@ -1,13 +1,14 @@
 """
 RAG Step 2: FastAPI RAG服务
-提供 OpenAI 兼容的 /v1/chat/completions 接口，内部执行检索增强生成
-用法：python 02_rag/rag_server.py --db-path data/chroma_db --port 8080
+提供 OpenAI 兼容的 /v1/chat/completions 接口，内部执行检索增强生成（检索 + 重排序）
+用法：python 02_rag/rag_server.py --port 8080
 """
 import argparse
+from contextlib import asynccontextmanager
 from typing import List, Optional
+
 import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
+from chromadb.config import Settings as ChromaSettings
 from openai import OpenAI
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,9 +16,13 @@ from pydantic import BaseModel
 import uvicorn
 from loguru import logger
 
-COLLECTION_NAME = "ming_military"
-EMBED_MODEL = "BAAI/bge-m3"
-TOP_K = 5
+from sentence_transformers import SentenceTransformer, CrossEncoder
+
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from config import settings
 
 RAG_SYSTEM = """你是一位专精明代军事史的学术助手，擅长明朝军事装备、兵器制造、军事制度等领域。
 
@@ -31,19 +36,55 @@ RAG_SYSTEM = """你是一位专精明代军事史的学术助手，擅长明朝�
 {context}
 """
 
-app = FastAPI(title="明代军事装备RAG服务", version="1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# 全局组件（lifespan 启动时初始化）
+state = {
+    "chroma_collection": None,
+    "embed_model": None,
+    "reranker": None,
+    "llm_client": None,
+    "llm_model_name": None,
+    "top_k": settings.top_k,
+    "rerank_top_k": settings.rerank_top_k,
+}
 
-# 全局组件（启动时初始化）
-chroma_collection = None
-embed_model = None
-llm_client = None
-llm_model_name = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info(f"加载嵌入模型: {settings.embed_model}")
+    state["embed_model"] = SentenceTransformer(settings.embed_model, trust_remote_code=True)
+
+    logger.info(f"加载重排序模型: {settings.reranker_model}")
+    state["reranker"] = CrossEncoder(settings.reranker_model, trust_remote_code=True)
+
+    logger.info(f"连接ChromaDB: {settings.chroma_db_path}")
+    client = chromadb.PersistentClient(
+        path=str(settings.chroma_db_path),
+        settings=ChromaSettings(anonymized_telemetry=False),
+    )
+    state["chroma_collection"] = client.get_collection(settings.collection_name)
+    logger.info(f"集合大小: {state['chroma_collection'].count()} 条")
+
+    state["llm_client"] = OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key)
+    state["llm_model_name"] = settings.llm_model
+
+    yield
+
+    logger.info("RAG服务关闭")
+
+
+app = FastAPI(title="明代军事装备RAG服务", version="1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class Message(BaseModel):
     role: str
     content: str
+
 
 class ChatRequest(BaseModel):
     model: Optional[str] = None
@@ -51,44 +92,62 @@ class ChatRequest(BaseModel):
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 2048
     stream: Optional[bool] = False
+    top_k: Optional[int] = None
+    rerank_top_k: Optional[int] = None
+
 
 class SearchRequest(BaseModel):
     query: str
-    top_k: int = TOP_K
+    top_k: Optional[int] = None
+    rerank_top_k: Optional[int] = None
 
 
-def retrieve(query: str, top_k: int = TOP_K) -> List[dict]:
-    query_embedding = embed_model.encode(
-        [query], normalize_embeddings=True
-    ).tolist()
-    results = chroma_collection.query(
+def retrieve(query: str, top_k: int, rerank_top_k: int) -> List[dict]:
+    """向量检索候选，再用 cross-encoder 重排序取前 rerank_top_k 条。"""
+    embed_model = state["embed_model"]
+    collection = state["chroma_collection"]
+
+    query_embedding = embed_model.encode([query], normalize_embeddings=True).tolist()
+    results = collection.query(
         query_embeddings=query_embedding,
         n_results=top_k,
         include=["documents", "metadatas", "distances"],
     )
-    items = []
+
+    candidates = []
     for doc, meta, dist in zip(
         results["documents"][0],
         results["metadatas"][0],
         results["distances"][0],
     ):
-        items.append({
+        candidates.append({
             "text": doc,
             "source": meta.get("source", ""),
-            "score": round(1 - dist, 4),
+            "chapter": meta.get("chapter", ""),
+            "vector_score": round(1 - dist, 4),
         })
-    return items
+
+    reranker = state["reranker"]
+    pairs = [[query, c["text"]] for c in candidates]
+    scores = reranker.predict(pairs)
+    for c, s in zip(candidates, scores):
+        c["rerank_score"] = round(float(s), 4)
+
+    candidates.sort(key=lambda c: c["rerank_score"], reverse=True)
+    return candidates[:rerank_top_k]
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "collection_count": chroma_collection.count()}
+    return {"status": "ok", "collection_count": state["chroma_collection"].count()}
 
 
 @app.post("/v1/search")
 def search(req: SearchRequest):
-    """仅检索，不生成，用于调试"""
-    results = retrieve(req.query, req.top_k)
+    """仅检索+重排序，不生成，用于调试"""
+    top_k = req.top_k or state["top_k"]
+    rerank_top_k = req.rerank_top_k or state["rerank_top_k"]
+    results = retrieve(req.query, top_k, rerank_top_k)
     return {"results": results}
 
 
@@ -100,11 +159,15 @@ def chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail="没有用户消息")
     query = user_messages[-1].content
 
-    # 检索
-    retrieved = retrieve(query, TOP_K)
+    top_k = req.top_k or state["top_k"]
+    rerank_top_k = req.rerank_top_k or state["rerank_top_k"]
+    retrieved = retrieve(query, top_k, rerank_top_k)
+
     context_parts = []
     for i, r in enumerate(retrieved, 1):
-        context_parts.append(f"[{i}] 来源：{r['source']}（相关度：{r['score']}）\n{r['text']}")
+        context_parts.append(
+            f"[{i}] 来源：{r['source']}/{r['chapter']}（相关度：{r['rerank_score']}）\n{r['text']}"
+        )
     context = "\n\n".join(context_parts)
 
     # 构建增强后的消息
@@ -114,23 +177,22 @@ def chat(req: ChatRequest):
         augmented_messages.append({"role": m.role, "content": m.content})
 
     # 调用LLM
-    response = llm_client.chat.completions.create(
-        model=llm_model_name,
+    response = state["llm_client"].chat.completions.create(
+        model=state["llm_model_name"],
         messages=augmented_messages,
         temperature=req.temperature,
         max_tokens=req.max_tokens,
     )
 
     answer = response.choices[0].message.content
-    # 附加检索来源信息
     sources_info = "\n\n---\n**参考来源：**\n" + "\n".join(
-        f"- [{r['source']}] 相关度 {r['score']}" for r in retrieved
+        f"- [{r['source']}] {r['chapter']} 重排得分 {r['rerank_score']}" for r in retrieved
     )
 
     return {
         "id": response.id,
         "object": "chat.completion",
-        "model": req.model or llm_model_name,
+        "model": req.model or state["llm_model_name"],
         "choices": [{
             "index": 0,
             "message": {
@@ -145,33 +207,12 @@ def chat(req: ChatRequest):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db-path", default="data/chroma_db")
-    parser.add_argument("--embedding-model", default=EMBED_MODEL)
-    parser.add_argument("--llm-base-url", default="http://localhost:11434/v1")
-    parser.add_argument("--llm-api-key", default="ollama")
-    parser.add_argument("--model", default="qwen3.5:9b")
     parser.add_argument("--port", type=int, default=8080)
-    parser.add_argument("--top-k", type=int, default=TOP_K)
+    parser.add_argument("--host", default="0.0.0.0")
     args = parser.parse_args()
 
-    global chroma_collection, embed_model, llm_client, llm_model_name
-
-    logger.info(f"加载嵌入模型: {args.embedding_model}")
-    embed_model = SentenceTransformer(args.embedding_model, trust_remote_code=True)
-
-    logger.info(f"连接ChromaDB: {args.db_path}")
-    client = chromadb.PersistentClient(
-        path=args.db_path,
-        settings=Settings(anonymized_telemetry=False),
-    )
-    chroma_collection = client.get_collection(COLLECTION_NAME)
-    logger.info(f"集合大小: {chroma_collection.count()} 条")
-
-    llm_client = OpenAI(base_url=args.llm_base_url, api_key=args.llm_api_key)
-    llm_model_name = args.model
-
-    logger.info(f"RAG服务启动: http://0.0.0.0:{args.port}")
-    uvicorn.run(app, host="0.0.0.0", port=args.port)
+    logger.info(f"RAG服务启动: http://{args.host}:{args.port}")
+    uvicorn.run(app, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":
