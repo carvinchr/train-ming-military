@@ -1,15 +1,15 @@
 """
-RAG Step 3: 交互式测试RAG服务
+RAG Step 3: 交互式测试RAG服务（核心函数可被 pytest 集成测试复用，见 tests/test_rag_integration.py）
 用法：python 02_rag/test_rag.py --server http://localhost:8080
       python 02_rag/test_rag.py --server http://localhost:8080 --question "虎蹲炮的射程是多少？"
 """
 import argparse
 import json
-import sys
+
 import httpx
 from rich.console import Console
-from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.panel import Panel
 
 console = Console()
 
@@ -50,7 +50,10 @@ def search_only(server: str, query: str, top_k: int = 5) -> list:
 
 def interactive_mode(server: str):
     console.print(Panel("明代军事装备 RAG 问答系统", style="bold blue"))
-    console.print("输入 [bold]quit[/bold] 退出 | [bold]search:[问题][/bold] 仅检索 | [bold]preset[/bold] 显示预设问题\n")
+    console.print(
+        "输入 [bold]quit[/bold] 退出 | [bold]search:[问题][/bold] 仅检索 | "
+        "[bold]preset[/bold] 显示预设问题\n"
+    )
 
     while True:
         try:
@@ -109,7 +112,7 @@ def main():
                 console.print(f"[red]失败: {e}[/red]")
         with open("results/rag_preset_test.json", "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
-        console.print(f"\n✅ 结果已保存到 results/rag_preset_test.json")
+        console.print("\n✅ 结果已保存到 results/rag_preset_test.json")
     else:
         interactive_mode(args.server)
 

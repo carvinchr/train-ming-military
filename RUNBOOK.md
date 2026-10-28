@@ -205,18 +205,19 @@ python 01_data_pipeline/02_ocr_images.py --input data/raw --output data/txt
 # Step 3: 文本清洗
 python 01_data_pipeline/03_clean_text.py --input data/txt --output data/cleaned
 
-# Step 4: 分块
+# Step 4: token感知分块（默认参数来自 .env：CHUNK_TOKENS=512 / OVERLAP_TOKENS=64，CLI可覆盖）
 python 01_data_pipeline/04_chunk_text.py \
     --input data/cleaned \
     --output data/chunks \
-    --chunk-size 512 \
-    --overlap 64
+    --chunk-tokens 512 \
+    --overlap-tokens 64
 
-# Step 5: 自动生成Q&A对（需要Ollama在运行）
+# Step 5: 自动生成Q&A对（需要Ollama在运行；默认模型来自 .env：QA_GEN_MODEL=qwen3.6:35b）
+# 默认断点续跑（跳过已处理的chunk）；--overwrite 忽略checkpoint重新生成
 python 01_data_pipeline/05_generate_qa.py \
     --input data/chunks \
     --output data/qa_pairs \
-    --model qwen2.5:14b \
+    --model qwen3.6:35b \
     --questions-per-chunk 3
 ```
 
@@ -227,22 +228,29 @@ python 01_data_pipeline/05_generate_qa.py \
 ### 2.1 构建向量索引
 
 ```bash
-# 构建ChromaDB索引（使用bge-m3中文嵌入）
+# 构建ChromaDB索引（使用bge-m3中文嵌入；默认值来自 .env，CLI可覆盖）
 python 02_rag/build_index.py \
     --chunks data/chunks \
     --db-path data/chroma_db \
     --embedding-model BAAI/bge-m3
 ```
 
+> 索引构建为原子操作：先写入 `ming_military_new` 集合再原子换名，不会污染旧索引；chunk 元数据（source/chapter）随向量一并持久化。
+
 ### 2.2 启动RAG服务
 
+路径、模型、RAG参数、CORS 均从 `.env`（`config.py`）读取，脚本参数只剩 `--port` / `--host`：
+
 ```bash
-python 02_rag/rag_server.py \
-    --db-path data/chroma_db \
-    --llm-base-url http://localhost:11434/v1 \
-    --model qwen2.5:14b \
-    --port 8080
+cp 00_setup/.env.example .env   # 首次：按需调整环境变量
+python 02_rag/rag_server.py --port 8080
 ```
+
+- 嵌入模型：`EMBED_MODEL`（默认 `BAAI/bge-m3`）
+- 重排序：`RERANKER_MODEL`（默认 `BAAI/bge-reranker-v2-m3`，CrossEncoder，检索候选按 rerank 得分重排）
+- LLM：`LLM_MODEL`（默认 `qwen3.5:9b`）+ `LLM_BASE_URL`
+- 每次请求可用 `top_k` / `rerank_top_k` 字段覆盖全局默认（`TOP_K=5` / `RERANK_TOP_K=4`）
+- `/health` 返回服务状态与集合大小
 
 > 机器A（4090 16GB）环境下也可将 `--model` 换成实测候选模型 `qwen3.5:9b`（速度优先）或 `qwen3.6:35b`（质量优先，需搭配 `/no_think` 与更大 `num_ctx`，见阶段5.2/5.3），详见 [benchmark/reports/rtx4090-laptop-16gb.md](benchmark/reports/rtx4090-laptop-16gb.md)。
 
@@ -251,8 +259,20 @@ python 02_rag/rag_server.py \
 ```bash
 python 02_rag/test_rag.py \
     --server http://localhost:8080 \
-    --questions "明代火绳枪与欧洲同期火枪有何差异？"
+    --question "明代火绳枪与欧洲同期火枪有何差异？"
 ```
+
+### 2.4 自动化测试
+
+单元测试位于 `tests/`（分块边界/重叠/ID、问题归一化去重、config默认值与env覆盖），不需要任何外部服务：
+
+```bash
+pip install -r requirements-dev.txt
+pytest                    # 全量
+pytest -m "not integration"  # 仅单元测试（CI用的就是这个）
+```
+
+`tests/test_rag_integration.py` 复用 `02_rag/test_rag.py` 的 `ask()`/`search_only()` 做集成测试：服务在 `http://localhost:8080`（可用 `RAG_TEST_SERVER` 覆盖）可达时跑，不可达自动 skip。CI 配置见 `.github/workflows/ci.yml`（py_compile + ruff + pytest）。
 
 ---
 
@@ -563,6 +583,15 @@ qwen3.5:9b 在 Open-WebUI 挂载知识库后**开箱即用**，不需要 qwen3.6
 ---
 
 ## 调整记录
+
+### 2026-10-28 — 设计审查收尾：测试、CI、文档同步
+
+- `tests/`（pytest）：分块（句子边界/整句重叠/SHA-256 ID/章节跟踪）、问题归一化去重与JSON回退解析、config默认值与env覆盖；`pytest.ini` 注册 `integration` 标记。
+- `tests/test_rag_integration.py` 复用 `02_rag/test_rag.py` 的 `ask()`/`search_only()`，服务不可达时自动 skip。
+- `.github/workflows/ci.yml`：py_compile 全量语法检查 + ruff（`ruff.toml`，行宽120，E/F/I规则）+ `pytest -m "not integration"`。
+- 修复测试暴露的脚本问题：`load_checkpoint` 对非dict JSON行的 `AttributeError`。
+- `run_pipeline.sh` 分块参数更名为 `--chunk-tokens/--overlap-tokens`；`build_and_serve.sh` 移除 `rag_server.py` 不支持的 `--db-path/--llm-base-url/--model` 参数（现由 `.env` 提供）。
+- 依赖审计：补声明 `pytesseract`、`pydantic`（均被脚本直接import）；`langchain*`、`marker-pdf`、`typer`、`datasets/peft/trl/bitsandbytes`、`pandas`、`scikit-learn`、`pyyaml`、`sentencepiece` 确认保留（为训练管线预留，已在 requirements.txt 注明）。
 
 ### 2026-09-13 — 基于4090基准测试确定候选部署模型
 

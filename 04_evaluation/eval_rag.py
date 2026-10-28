@@ -10,10 +10,11 @@ import argparse
 import json
 import time
 from pathlib import Path
+
 import httpx
-from tqdm import tqdm
 from loguru import logger
 from openai import OpenAI
+from tqdm import tqdm
 
 
 def ask_rag(server: str, question: str, timeout: int = 120) -> dict:
@@ -159,7 +160,7 @@ def main():
     output = {"summary": summary, "details": results}
     Path(args.output).write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    logger.info(f"\n📊 RAG评估结果:")
+    logger.info("\n📊 RAG评估结果:")
     logger.info(f"   上下文相关性: {summary.get('avg_context_relevance', 'N/A')}")
     logger.info(f"   答案忠实度:   {summary.get('avg_faithfulness', 'N/A')}")
     logger.info(f"   平均延迟:     {summary.get('avg_latency_sec', 'N/A')} 秒")

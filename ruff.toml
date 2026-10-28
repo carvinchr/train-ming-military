@@ -1,0 +1,6 @@
+line-length = 120
+exclude = ["legacy", "__pycache__", ".venv", "data", "outputs", "results"]
+
+[lint]
+select = ["E", "F", "I"]
+per-file-ignores = { "**/*.py" = ["E741", "E402"] }

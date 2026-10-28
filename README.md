@@ -9,6 +9,9 @@
 bash 00_setup/wsl_setup.sh
 cp 00_setup/.env.example .env    # 按需修改
 
+# （可选）运行单元测试（集成测试在RAG服务不可达时自动跳过）
+pip install -r requirements-dev.txt && pytest
+
 # 2. 将书籍PDF放入 data/raw/，然后运行数据管线
 bash 01_data_pipeline/run_pipeline.sh
 
@@ -28,6 +31,10 @@ bash 05_deployment/deploy.sh
 train-ming-military/
 ├── RUNBOOK.md                    ← 完整操作手册（主要文档）
 ├── README.md                     ← 本文件
+├── requirements-dev.txt          ← 开发/CI依赖（pytest + ruff）
+├── pytest.ini / ruff.toml        ← 测试与lint配置
+├── tests/                        ← pytest 单元测试 + RAG集成测试（服务不可达自动跳过）
+├── .github/workflows/ci.yml      ← CI：py_compile + ruff + pytest
 ├── 00_setup/
 │   ├── wsl_setup.sh              ← WSL环境一键初始化
 │   ├── requirements.txt          ← Python依赖

@@ -11,9 +11,5 @@ python 02_rag/build_index.py \
     --db-path data/chroma_db \
     --embedding-model BAAI/bge-m3
 
-echo ">>> 启动RAG服务 (端口8080)..."
-python 02_rag/rag_server.py \
-    --db-path data/chroma_db \
-    --llm-base-url http://localhost:11434/v1 \
-    --model qwen3.5:9b \
-    --port 8080
+echo ">>> 启动RAG服务 (端口8080，模型/路径/CORS均从 .env 读取，见 00_setup/.env.example)..."
+python 02_rag/rag_server.py --port 8080

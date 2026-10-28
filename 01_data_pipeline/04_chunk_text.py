@@ -11,8 +11,8 @@ import re
 from pathlib import Path
 from typing import Dict, List
 
-from tqdm import tqdm
 from loguru import logger
+from tqdm import tqdm
 from transformers import AutoTokenizer
 
 from config import settings

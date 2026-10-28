@@ -8,16 +8,15 @@ Step 5: 用LLM自动从文本块生成Q&A对，作为SFT训练数据
 import argparse
 import json
 import re
+import sys
 import time
 from pathlib import Path
+from pathlib import Path as _Path
 from typing import Dict, List, Set
 
 from loguru import logger
-from tqdm import tqdm
 from openai import OpenAI
-
-import sys
-from pathlib import Path as _Path
+from tqdm import tqdm
 
 sys.path.append(str(_Path(__file__).resolve().parent.parent))
 from config import settings
@@ -125,10 +124,10 @@ def load_checkpoint(output_file: Path) -> Set[str]:
                 continue
             try:
                 qa = json.loads(line)
-                if qa.get("chunk_id"):
-                    done.add(qa["chunk_id"])
             except json.JSONDecodeError:
                 continue
+            if isinstance(qa, dict) and qa.get("chunk_id"):
+                done.add(qa["chunk_id"])
     return done
 
 
@@ -174,7 +173,10 @@ def main():
     if not args.overwrite and done:
         logger.info(f"checkpoint: 已处理 {len(done)} 个块，跳过续跑")
 
-    logger.info(f"共 {len(chunks)} 个块，每块生成 {args.questions_per_chunk} 问，目标 {len(chunks) * args.questions_per_chunk} 条Q&A")
+    logger.info(
+        f"共 {len(chunks)} 个块，每块生成 {args.questions_per_chunk} 问，"
+        f"目标 {len(chunks) * args.questions_per_chunk} 条Q&A"
+    )
 
     generated = 0
     mode = "w" if args.overwrite else "a"

@@ -3,8 +3,8 @@
 生成后需要人工填写 reference_answer 字段
 用法：python 04_evaluation/create_testset.py --output data/testset.jsonl
 """
-import json
 import argparse
+import json
 from pathlib import Path
 
 # 精心设计的测试问题（覆盖不同难度和类型）

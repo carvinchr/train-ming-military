@@ -7,9 +7,10 @@ import argparse
 import json
 import tempfile
 from pathlib import Path
+
 import fitz
-from tqdm import tqdm
 from loguru import logger
+from tqdm import tqdm
 
 try:
     from paddleocr import PaddleOCR

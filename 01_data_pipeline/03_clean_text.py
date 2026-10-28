@@ -5,9 +5,9 @@ Step 3: 文本清洗 — 去除噪声、页码、页眉页脚、多余空白
 import argparse
 import re
 from pathlib import Path
-from tqdm import tqdm
-from loguru import logger
 
+from loguru import logger
+from tqdm import tqdm
 
 # 需要过滤的行模式（页码、页眉页脚等）
 NOISE_PATTERNS = [

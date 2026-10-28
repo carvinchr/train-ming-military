@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Syntax check (py_compile all scripts)
+        run: |
+          find . -name '*.py' -not -path './.venv/*' -print0 \
+            | xargs -0 -n 20 python -m py_compile
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Unit tests (integration tests skipped without a RAG server)
+        run: pytest -m "not integration"

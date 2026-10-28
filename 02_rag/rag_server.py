@@ -4,22 +4,20 @@ RAG Step 2: FastAPI RAG服务
 用法：python 02_rag/rag_server.py --port 8080
 """
 import argparse
+import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List, Optional
 
 import chromadb
+import uvicorn
 from chromadb.config import Settings as ChromaSettings
-from openai import OpenAI
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import uvicorn
 from loguru import logger
-
-from sentence_transformers import SentenceTransformer, CrossEncoder
-
-import sys
-from pathlib import Path
+from openai import OpenAI
+from pydantic import BaseModel
+from sentence_transformers import CrossEncoder, SentenceTransformer
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from config import settings

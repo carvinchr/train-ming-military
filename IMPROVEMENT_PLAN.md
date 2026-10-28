@@ -21,18 +21,23 @@ Design-review fixes applied on branch `fix/design-review-fixes`. Status legend: 
 
 Commits: `3d2b276`, `1960a36`.
 
-## Remaining work
+## Completed (cont.)
 
 ### Tests
-- [ ] Create `tests/` with pytest: chunking (boundary/overlap/ID), `normalize_question` dedup, config defaults + env overrides.
-- [ ] Promote `02_rag/test_rag.py` from interactive script to an integration test (skip when server is down).
+- [x] `tests/` pytest suite: chunking (boundary/overlap/ID/chapter tracking), `normalize_question` dedup + JSON fallback parsing + checkpoint, config defaults + env overrides. `pytest.ini` registers the `integration` marker.
+- [x] `tests/test_rag_integration.py` reuses `ask()`/`search_only()` from `02_rag/test_rag.py`; health-check gate, auto-skip when the server is down or is not this project's RAG service. Server override via `RAG_TEST_SERVER`.
 
 ### CI
-- [ ] Add `.github/workflows/ci.yml`: Python syntax check (`py_compile`), lint (ruff), `pytest` on push/PR.
+- [x] `.github/workflows/ci.yml`: `py_compile` all scripts, `ruff check` (`ruff.toml`, line-length 120, E/F/I rules), `pytest -m "not integration"` on push/PR.
+- [x] `requirements-dev.txt` (pytest, ruff + minimal runtime deps for test imports).
 
 ### Docs sync
-- [ ] Verify `RUNBOOK.md` matches current script flags (`--overwrite`, env vars) and reranker step.
-- [ ] Confirm dependency list vs imports: `langchain*`, `marker-pdf`, `typer`, `datasets/peft/trl/bitsandbytes` are declared but not yet imported by any script (reserved for the training pipeline); decide keep vs trim.
+- [x] `RUNBOOK.md` fixed: chunk flags `--chunk-tokens`/`--overlap-tokens`, QA defaults + `--overwrite`/checkpoint note, rag_server flags (env-driven), reranker step, `--question` typo; added 2026-10-28 adjustment record. README quick-start + tree updated.
+- [x] Dependency audit: added `pytesseract` + `pydantic` (imported but undeclared). Kept `langchain*`, `marker-pdf`, `typer`, `datasets/peft/trl/bitsandbytes`, `pandas`, `scikit-learn`, `pyyaml`, `sentencepiece` — marked as reserved for the training pipeline in `requirements.txt`.
+
+### Bug fixes found by tests
+- [x] `load_checkpoint` crashed on non-dict JSON lines (`AttributeError`) — now guards with `isinstance(qa, dict)`.
+- [x] `run_pipeline.sh` used stale flags `--chunk-size`/`--overlap`; `build_and_serve.sh` passed `--db-path/--llm-base-url/--model` which `rag_server.py` no longer accepts (env-driven now). Import blocks ruff-normalized across all scripts.
 
 ## Verification
-All rewritten scripts pass `py_compile`; overlap logic verified sentence-level; every third-party import found in `.py` files is covered by `requirements.txt`.
+All `.py` files pass `py_compile`; `ruff check .` clean; `pytest`: 22 passed, 3 integration skipped (no live RAG service). Commits so far: `3d2b276`, `1960a36`, `c6d7d3f`.

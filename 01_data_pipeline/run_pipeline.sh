@@ -24,12 +24,12 @@ echo ">>> Step 3: 文本清洗"
 python 01_data_pipeline/03_clean_text.py --input data/txt --output data/cleaned
 
 echo ""
-echo ">>> Step 4: 语义分块 (512字符，64重叠)"
+echo ">>> Step 4: token感知分块 (默认512 tokens，64重叠，可被 .env / CLI 覆盖)"
 python 01_data_pipeline/04_chunk_text.py \
     --input data/cleaned \
     --output data/chunks \
-    --chunk-size 512 \
-    --overlap 64
+    --chunk-tokens "${CHUNK_TOKENS:-512}" \
+    --overlap-tokens "${OVERLAP_TOKENS:-64}"
 
 echo ""
 echo ">>> Step 5: 自动生成Q&A（需要Ollama运行）"

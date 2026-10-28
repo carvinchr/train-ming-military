@@ -8,12 +8,12 @@ RAG Step 1: 构建ChromaDB向量索引
 import argparse
 import json
 from pathlib import Path
-from tqdm import tqdm
-from loguru import logger
 
 import chromadb
 from chromadb.config import Settings
+from loguru import logger
 from sentence_transformers import SentenceTransformer
+from tqdm import tqdm
 
 from config import settings
 

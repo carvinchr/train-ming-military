@@ -7,6 +7,7 @@ import argparse
 import json
 import random
 from pathlib import Path
+
 from loguru import logger
 
 SYSTEM_PROMPT = (
@@ -123,7 +124,7 @@ def main():
         )
         logger.info(f"已更新 {dataset_info_path}")
     else:
-        logger.warning(f"LLaMA-Factory未安装，手动将以下内容加入 data/dataset_info.json：")
+        logger.warning("LLaMA-Factory未安装，手动将以下内容加入 data/dataset_info.json：")
         print(json.dumps({"ming_military_train": dataset_info["ming_military_train"]}, ensure_ascii=False, indent=2))
 
 

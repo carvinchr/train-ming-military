@@ -5,11 +5,11 @@ Step 1: 从PDF书籍提取纯文本
 """
 import argparse
 import json
-import re
 from pathlib import Path
+
 import fitz  # PyMuPDF
-from tqdm import tqdm
 from loguru import logger
+from tqdm import tqdm
 
 
 def is_scan_pdf(doc: fitz.Document, sample_pages: int = 5) -> bool:

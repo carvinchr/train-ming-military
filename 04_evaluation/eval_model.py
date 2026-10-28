@@ -11,14 +11,15 @@ import argparse
 import json
 import time
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict
+
+from loguru import logger
 from openai import OpenAI
 from tqdm import tqdm
-from loguru import logger
 
 try:
-    from rouge_score import rouge_scorer
     import jieba
+    from rouge_score import rouge_scorer
     HAS_ROUGE = True
 except ImportError:
     HAS_ROUGE = False
